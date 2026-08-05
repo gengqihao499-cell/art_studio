@@ -1,0 +1,25 @@
+backend/.env
+backend/.venv/
+
+# Local runtime state: conversations, checkpoints, generated images, logs,
+# context artifacts, memory snapshots and recoverable trash stay on this PC.
+backend/storage/**
+!backend/storage/images/
+!backend/storage/uploads/
+!backend/storage/workflows/
+!backend/storage/logs/
+!backend/storage/images/.gitkeep
+!backend/storage/uploads/.gitkeep
+!backend/storage/workflows/.gitkeep
+!backend/storage/logs/.gitkeep
+
+# Python-generated caches must not be published.
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+frontend/node_modules/
+logs/
+*.zip

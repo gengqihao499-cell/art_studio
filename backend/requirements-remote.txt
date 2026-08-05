@@ -1,0 +1,3 @@
+-r requirements.txt
+oss2>=2.19,<3
+pymilvus>=2.5,<3
