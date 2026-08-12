@@ -8,13 +8,11 @@ from typing import TYPE_CHECKING
 from langgraph.config import get_stream_writer
 
 from app.providers.base import ChatProvider
+from app.schemas.agent_protocol import ChildTaskEnvelope
 
 if TYPE_CHECKING:
     from app.context import ContextEngine
     from app.services.agent_log_service import AgentLogService
-
-
-AGENTS = ("composition", "character", "color")
 
 
 class AgentRuntime:
@@ -92,6 +90,75 @@ class AgentRuntime:
             )
             raise
 
+    async def call_isolated_json(
+        self,
+        *,
+        task_envelope: ChildTaskEnvelope,
+        role: str,
+        task: str,
+        fallback: dict,
+        attempt: int = 1,
+        reason: str = "",
+    ) -> tuple[dict, dict]:
+        """在严格隔离的子任务上下文中调用模型。
+
+        与 ``call_json`` 不同，本方法不接受父图 State，也不会调用
+        ContextProjector。子 Agent 能看到的全部内容只能来自已校验的任务信封。
+        """
+
+        system_prompt = (
+            f"你是 ArtFlow Studio 的{role}。只处理任务信封指定的职责，"
+            "不得推测或请求父 Agent、其他子 Agent 的隐藏上下文。"
+            "只输出一个合法 JSON 对象，不要输出 Markdown 或解释。"
+        )
+        isolated_context = task_envelope.context()
+        user_prompt = (
+            f"task_id={task_envelope.task_id}\n"
+            f"任务：{task}\n"
+            f"隔离上下文：{json.dumps(isolated_context, ensure_ascii=False)}"
+        )
+        log_state = task_envelope.log_state()
+        agent = task_envelope.child_agent
+        try:
+            output, result = await self.provider.complete_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                fallback=fallback,
+            )
+            invocation = self.logs.record(
+                state=log_state,
+                agent=agent,
+                status="completed",
+                model=result.model,
+                input_text=user_prompt,
+                output_text=result.content,
+                structured_output={
+                    "task_id": task_envelope.task_id,
+                    "parent_run_id": task_envelope.parent_run_id,
+                    "result": output,
+                },
+                result=result,
+                attempt=attempt,
+                reason=reason,
+            )
+            return output, invocation
+        except Exception as exc:
+            self.logs.record(
+                state=log_state,
+                agent=agent,
+                status="failed",
+                model=self.provider.model,
+                input_text=user_prompt,
+                structured_output={
+                    "task_id": task_envelope.task_id,
+                    "parent_run_id": task_envelope.parent_run_id,
+                },
+                attempt=attempt,
+                reason=reason,
+                error=exc,
+            )
+            raise
+
     def skip(self, *, state: dict, agent: str, reason: str) -> dict:
         return self.logs.record(
             state=state,
@@ -151,23 +218,3 @@ def emit_started(
     except RuntimeError:
         # Direct unit calls do not have a LangGraph streaming context.
         pass
-
-
-def latest_by_agent(items: list[dict]) -> dict[str, dict]:
-    latest: dict[str, dict] = {}
-    for item in items:
-        agent = item["agent"]
-        if agent not in latest or item.get("attempt", 0) >= latest[agent].get("attempt", 0):
-            latest[agent] = item
-    return latest
-
-
-def revision_for(state: dict, agent: str) -> list[str]:
-    review = latest_by_agent(state.get("reviews", [])).get(agent)
-    if not review or review.get("approved"):
-        return []
-    return list(review.get("revision_instructions", []))
-
-
-def next_attempt(state: dict, agent: str) -> int:
-    return int(state.get("attempts", {}).get(agent, 0)) + 1
