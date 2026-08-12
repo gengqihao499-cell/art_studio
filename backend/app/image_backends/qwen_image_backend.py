@@ -1,4 +1,8 @@
-"""Qwen Image 2.0 generation/edit adapter for Alibaba Cloud Beijing."""
+"""阿里云北京地域 Qwen Image 2.0 生成/编辑适配器。
+
+负责把统一图像请求转换成千问多模态请求，限制并发、上传参考图、传递负面提示词
+和随机种子，最后下载图片到本地存储。这里不参与 Agent 决策或风格编排。
+"""
 
 from __future__ import annotations
 
@@ -31,7 +35,7 @@ def _find_image_urls(payload: object) -> list[str]:
 
 
 class QwenImageBackend:
-    """Issue one request per controlled variant with bounded concurrency."""
+    """为每个受控候选发起一次请求，并用信号量限制并发。"""
 
     name = "qwen_image"
 
@@ -75,6 +79,8 @@ class QwenImageBackend:
         }
 
     def _reference_content(self, reference: str) -> dict | None:
+        """把远程地址或本地图片转换成千问消息中的 image 内容。"""
+
         if reference.startswith(("http://", "https://", "data:")):
             return {"image": reference}
         path = Path(reference)
@@ -93,8 +99,10 @@ class QwenImageBackend:
         index: int,
     ) -> GeneratedImage:
         prompt = f"{request.positive_prompt}, {variant.prompt_suffix}".strip(", ")
+        variant_seed = (request.seed + variant.seed_offset + index) % 2147483648
         content: list[dict] = []
-        if request.generation_mode == "edit":
+        # 千问最多接收 3 张输入图；顺序由 Prompt Compiler 预先确定。
+        if request.reference_images:
             for reference in request.reference_images[:3]:
                 item = await asyncio.to_thread(self._reference_content, reference)
                 if item:
@@ -106,6 +114,8 @@ class QwenImageBackend:
             "parameters": {
                 "n": 1,
                 "size": f"{request.width}*{request.height}",
+                "negative_prompt": request.negative_prompt[:500],
+                "seed": variant_seed,
                 "prompt_extend": self.prompt_extend,
                 "watermark": self.watermark,
             },
@@ -154,7 +164,7 @@ class QwenImageBackend:
             file_path=str(destination),
             public_url=f"/storage/images/{filename}",
             prompt=prompt,
-            seed=request.seed + variant.seed_offset + index,
+            seed=variant_seed,
             width=request.width,
             height=request.height,
             backend=self.name,
@@ -166,9 +176,15 @@ class QwenImageBackend:
                 "model": self.model,
                 "generation_mode": request.generation_mode,
                 "size": f"{request.width}*{request.height}",
+                "reference_count": len(content) - 1,
                 "variant": variant.model_dump(),
             },
-            generation_params={"prompt_extend": self.prompt_extend, "watermark": self.watermark},
+            generation_params={
+                "negative_prompt": request.negative_prompt[:500],
+                "seed": variant_seed,
+                "prompt_extend": self.prompt_extend,
+                "watermark": self.watermark,
+            },
             parent_image_id=request.parent_image_id,
             source_turn_id=request.source_turn_id,
             version_number=request.version_number,

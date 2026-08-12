@@ -23,7 +23,7 @@ class CandidateVariant(BaseModel):
 class ImageGenerationRequest(BaseModel):
     project_id: str
     run_id: str
-    backend: Literal["mock", "comfyui", "qwen_image"] = "mock"
+    backend: Literal["mock", "comfyui", "qwen_image", "wan_lora"] = "mock"
     base_model: str
     positive_prompt: str
     negative_prompt: str = ""

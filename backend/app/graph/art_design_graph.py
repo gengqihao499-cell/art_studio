@@ -1,28 +1,33 @@
-"""LangGraph orchestration for the ArtFlow multi-Agent backend.
+"""ArtFlow 5-Agent LangGraph主图。
 
-The file intentionally exposes the architectural boundaries in comments so a
-developer can see which nodes are independent Agents and where combination occurs.
+活跃逻辑Agent：Supervisor、Composition、Subject、Style、Image。
+三个专业子Agent在私有子图中并行运行；父级只在全部终态消息进入屏障后恢复。
+旧版细粒度 Agent 已移除，避免未注册代码与真实运行链路产生歧义。
 """
+
+from __future__ import annotations
+
+import os
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.art_director import make_art_director, make_review_agent
-from app.agents.assistant_agent import make_assistant_agent
-from app.agents.brief_agent import make_brief_agent
-from app.agents.character_agent import make_character_agent
-from app.agents.color_agent import make_color_agent
 from app.agents.common import AgentRuntime
-from app.agents.composition_agent import make_composition_agent
-from app.agents.curator_agent import make_curator_agent
-from app.agents.image_worker import make_image_worker
-from app.agents.intent_router import make_intent_router
-from app.agents.memory_agent import make_memory_agent
-from app.agents.workflow_compiler import make_prompt_compiler
+from app.agents.image_agent import make_image_agent
+from app.agents.parallel_specialists import make_parallel_specialists
+from app.agents.supervisor_agent import (
+    make_supervisor_aggregate,
+    make_supervisor_finalize,
+    make_supervisor_prepare,
+)
 from app.schemas.art_state import ArtDesignState
 
 
-def _route_after_intent(state: dict) -> str:
-    return "assistant_agent" if state.get("routing", {}).get("route") == "chat" else "brief_agent"
+def _route_after_prepare(state: dict) -> str:
+    return (
+        "supervisor_finalize"
+        if state.get("routing", {}).get("route") == "chat"
+        else "parallel_specialists"
+    )
 
 
 class ArtDesignGraph:
@@ -37,37 +42,41 @@ class ArtDesignGraph:
         runtime = AgentRuntime(chat_provider, agent_logs, context_engine)
         builder = StateGraph(ArtDesignState)
 
-        # 1) AGENT REGISTRATION — each node has one explicit responsibility.
-        builder.add_node("memory_agent", make_memory_agent(runtime, context_engine))
-        builder.add_node("intent_router", make_intent_router(runtime))
-        builder.add_node("brief_agent", make_brief_agent(runtime))
-        builder.add_node("art_director", make_art_director(runtime))
-        builder.add_node("composition_agent", make_composition_agent(runtime))
-        builder.add_node("character_agent", make_character_agent(runtime))
-        builder.add_node("color_agent", make_color_agent(runtime))
-        builder.add_node("art_director_review", make_review_agent(runtime))
-        builder.add_node("curator", make_curator_agent(runtime))
-        builder.add_node("prompt_compiler", make_prompt_compiler(runtime))
-        builder.add_node("image_worker", make_image_worker(image_backend, agent_logs))
-        builder.add_node("assistant_agent", make_assistant_agent(runtime))
+        # 同一个Supervisor分三个阶段出现，但逻辑身份、日志名称和职责边界一致。
+        builder.add_node(
+            "supervisor_prepare",
+            make_supervisor_prepare(runtime, context_engine),
+        )
+        builder.add_node(
+            "parallel_specialists",
+            make_parallel_specialists(
+                runtime,
+                timeout_seconds=float(
+                    os.getenv("ARTFLOW_CHILD_TIMEOUT_SECONDS", "90")
+                ),
+            ),
+        )
+        builder.add_node("supervisor_aggregate", make_supervisor_aggregate(runtime))
+        builder.add_node(
+            "image_agent",
+            make_image_agent(runtime, image_backend, agent_logs),
+        )
+        builder.add_node("supervisor_finalize", make_supervisor_finalize(runtime))
 
-        # 2) CONTEXT + ROUTING — chat-only turns never call image generation.
-        builder.add_edge(START, "memory_agent")
-        builder.add_edge("memory_agent", "intent_router")
-        builder.add_conditional_edges("intent_router", _route_after_intent)
-        builder.add_edge("brief_agent", "art_director")
+        builder.add_edge(START, "supervisor_prepare")
+        builder.add_conditional_edges(
+            "supervisor_prepare",
+            _route_after_prepare,
+            {
+                "parallel_specialists": "parallel_specialists",
+                "supervisor_finalize": "supervisor_finalize",
+            },
+        )
+        # parallel_specialists内部使用三个ChildGraphState私有子图并行执行。
+        # 该节点只有收齐全部completed/failed/timed_out结果后才会返回。
+        builder.add_edge("parallel_specialists", "supervisor_aggregate")
+        builder.add_edge("supervisor_aggregate", "image_agent")
+        builder.add_edge("image_agent", "supervisor_finalize")
+        builder.add_edge("supervisor_finalize", END)
 
-        # 3) PARALLEL SPECIALISTS — unselected nodes log “本轮跳过” without an LLM call.
-        for specialist in ("composition_agent", "character_agent", "color_agent"):
-            builder.add_edge("art_director", specialist)
-            builder.add_edge(specialist, "art_director_review")
-
-        # 4) COMBINATION BOUNDARY — only Curator combines specialist proposals.
-        builder.add_edge("art_director_review", "curator")
-
-        # 5) EXECUTION — compile, generate/archive, then write the user-facing reply.
-        builder.add_edge("curator", "prompt_compiler")
-        builder.add_edge("prompt_compiler", "image_worker")
-        builder.add_edge("image_worker", "assistant_agent")
-        builder.add_edge("assistant_agent", END)
         self.compiled = builder.compile(checkpointer=checkpointer)

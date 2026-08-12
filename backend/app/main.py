@@ -21,7 +21,12 @@ from app.database import Database
 from app.context import ContextEngine
 from app.context.claude_memory import ClaudeMemoryStore
 from app.graph import ArtDesignGraph
-from app.image_backends import ComfyUIImageBackend, MockImageBackend, QwenImageBackend
+from app.image_backends import (
+    ComfyUIImageBackend,
+    MockImageBackend,
+    QwenImageBackend,
+    WanLoraImageBackend,
+)
 from app.providers import MockChatProvider, QwenChatProvider
 from app.schemas import CanvasSnapshotRequest, ClaudeMemoryUpdate, NewProjectRequest
 from app.services import EventService, ProjectService, StyleService, WorkflowService
@@ -63,6 +68,19 @@ DEFAULT_LORA = os.getenv("ARTFLOW_DEFAULT_LORA", "dark_alchemy_v1.safetensors")
 
 
 def build_image_backend():
+    if IMAGE_BACKEND_NAME == "wan_lora":
+        return WanLoraImageBackend(
+            api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
+            model=os.getenv("WAN_DEPLOYED_MODEL", "").strip(),
+            trigger_word=os.getenv("WAN_LORA_TRIGGER_WORD", "").strip(),
+            api_host=os.getenv("WAN_API_HOST", "https://dashscope.aliyuncs.com").strip(),
+            images_dir=IMAGES_DIR,
+            storage_dir=STORAGE_DIR,
+            timeout_seconds=float(os.getenv("WAN_TIMEOUT_SECONDS", "600")),
+            poll_interval_seconds=float(os.getenv("WAN_POLL_INTERVAL_SECONDS", "1.5")),
+            max_concurrency=int(os.getenv("WAN_MAX_CONCURRENCY", "2")),
+            watermark=os.getenv("WAN_WATERMARK", "false").lower() == "true",
+        )
     if IMAGE_BACKEND_NAME == "qwen_image":
         return QwenImageBackend(
             api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
@@ -90,7 +108,7 @@ def build_image_backend():
             api_key=os.getenv("COMFYUI_API_KEY", ""),
         )
     if IMAGE_BACKEND_NAME != "mock":
-        raise RuntimeError("ARTFLOW_IMAGE_BACKEND must be 'mock', 'qwen_image', or 'comfyui'")
+        raise RuntimeError("ARTFLOW_IMAGE_BACKEND must be 'mock', 'wan_lora', 'qwen_image', or 'comfyui'")
     return MockImageBackend(ASSETS_DIR, IMAGES_DIR)
 
 

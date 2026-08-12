@@ -53,14 +53,21 @@ class EventService:
         artifacts: list[tuple] = []
         timestamp = now_iso()
         for proposal in update.get("proposals", []):
+            # 5-Agent协议使用task_id关联父子任务；兼容旧proposal_id，且避免
+            # 非关键的artifact归档字段缺失导致整条图像生成链路失败。
+            proposal_id = (
+                proposal.get("proposal_id")
+                or proposal.get("task_id")
+                or f"proposal_{uuid.uuid4().hex[:12]}"
+            )
             artifacts.append(
                 (
-                    proposal["proposal_id"],
+                    proposal_id,
                     project_id,
                     run_id,
-                    proposal["agent"],
+                    proposal.get("agent", "unknown_agent"),
                     "proposal",
-                    int(proposal["attempt"]),
+                    int(proposal.get("attempt", 1)),
                     json.dumps(proposal, ensure_ascii=False),
                     timestamp,
                 )
@@ -72,7 +79,7 @@ class EventService:
                     artifact_id,
                     project_id,
                     run_id,
-                    "art_director",
+                    "supervisor_agent",
                     "review",
                     int(review.get("attempt", 1)),
                     json.dumps(review, ensure_ascii=False),

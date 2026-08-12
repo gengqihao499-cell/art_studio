@@ -249,14 +249,14 @@ class ProjectService:
         self, connection, project_id: str, run_id: str, timestamp: str
     ) -> None:
         event_specs = (
-            ("agent_completed", "brief_agent", "brief", "completed", 1, "Brief Agent", "提取 4 个硬约束、3 个软约束，并锁定四条机械手臂。"),
-            ("agent_completed", "art_director", "direction", "completed", 1, "Art Director", "统一为阴暗炼金术、古铜机械与冷色腐化能量。"),
-            ("review_passed", "composition_agent", "proposal", "passed", 1, "Composition Agent", "低机位三分构图通过，主体完整且占画面约 65%。"),
-            ("review_passed", "character_agent", "proposal", "passed", 1, "Character Agent", "四臂结构与炼金核心清晰，剪影适合游戏读取。"),
-            ("review_rejected", "color_agent", "review", "rejected", 1, "Color Agent", "首轮整体偏暖；要求加入冷青腐化辅助色并拉开明度。"),
-            ("review_passed", "color_agent", "proposal", "passed", 2, "Color Agent", "第 2 轮通过：冷青辅助色与暖色核心形成视觉焦点。"),
-            ("curator_selected", "curator_agent", "curation", "completed", 1, "Curator Agent", "已组合构图 A、角色 C 与色彩 D，并生成四种受控变化。"),
-            ("image_completed", "image_worker", "generation", "completed", 1, "Image Worker", "4 张候选图已保存到本地并插入画布。"),
+            ("tasks_dispatched", "supervisor_agent", "prepare", "completed", 1, "Supervisor Agent", "已冻结上下文并派发 3 个隔离子任务。"),
+            ("child_completed", "composition_agent", "isolated_task", "completed", 1, "Composition Agent", "构图与空间层次提案已返回。"),
+            ("child_completed", "subject_agent", "isolated_task", "completed", 1, "Subject Agent", "角色、道具与轮廓提案已返回。"),
+            ("child_completed", "style_agent", "isolated_task", "completed", 1, "Style Agent", "画风、色板与光照提案已返回。"),
+            ("all_children_joined", "supervisor_agent", "waiting", "completed", 1, "Supervisor Agent", "并行屏障已收齐 3/3 个终态消息。"),
+            ("agent_completed", "supervisor_agent", "aggregate", "completed", 1, "Supervisor Agent", "已审核并合并全部专业结果。"),
+            ("image_completed", "image_agent", "generation", "completed", 1, "Image Agent", "4 张候选图已保存到本地并插入画布。"),
+            ("agent_completed", "supervisor_agent", "finalize", "completed", 1, "Supervisor Agent", "本轮创作任务已完成。"),
         )
         rows = []
         for sequence, spec in enumerate(event_specs, start=1):

@@ -39,6 +39,10 @@ class ArtDesignState(TypedDict, total=False):
     selected_concept: dict | None
     workflow_request: dict | None
     candidate_images: list[dict]
+    child_tasks: list[dict]
+    child_results: list[dict]
+    expected_child_task_ids: list[str]
+    dispatch_closed: bool
     assistant_message: str
     status: Literal[
         "briefing",

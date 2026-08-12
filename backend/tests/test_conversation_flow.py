@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from app.agents.intent_router import _fallback_route
+from app.agents.supervisor_agent import _fallback_route
 from app.database import Database
 from app.services.project_service import ProjectService
 
