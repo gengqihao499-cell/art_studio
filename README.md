@@ -181,14 +181,11 @@ http://127.0.0.1:8000/api/health
 | `backend/app/image_backends/wan_lora_backend.py` | Wan LoRA 异步调用、轮询、下载和归档 |
 | `backend/tests/test_multi_agent_architecture.py` | 上下文隔离、并行、超时和单向通信测试 |
 
-## 测试
+## 改进和未来目标
+LoRA微调效果并不好，原因之一在数据收集上，基本来自游戏截图，该游戏的场景大多由程序生成，所谓风格背景其实很少，导致背景生成时基本由wan模型基础知识构建。
 
-```powershell
-Set-Location backend
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
+### 目标：
+1、构建更加统一画风的数据集，可能来自同一个开源画师或者别的网站，需要花费更多经历在数据清洗上。
+2、LoRA评估这块，用的是AI写的确定性算法，但是太片面，比较完善点的评测应该有确定性图像算法+视觉大模型裁判+多人匿名A/B盲评，后续有时间完成这部分。
+3、积累人工偏好数据集之后，后期应该加入DPO，这样可能效果会更好。
 
-Set-Location ..\frontend
-npm run lint
-```
-
-当前后端测试结果：**22/22 通过**；前端 ESLint 通过。测试使用 Mock Provider，不会产生付费模型调用。
